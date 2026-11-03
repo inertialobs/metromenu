@@ -2,11 +2,13 @@
 
 These wrap the small Linux-specific operations that do not belong in the
 widget code: revealing a desktop file, editing it, copying the launch command,
-adding a shortcut to the desktop and adding a launcher to the Xfce panel.
+adding a shortcut to the desktop and adding a launcher to the panel (Xfce via
+xfconf, LXQt via ``~/.config/lxqt/panel.conf``).
 """
 
 from __future__ import annotations
 
+import configparser
 import os
 import shutil
 import subprocess
@@ -18,6 +20,8 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+
+from . import desktop  # noqa: E402
 
 
 def _which(program: str) -> str | None:
@@ -65,7 +69,7 @@ def reveal_file(path: Path) -> bool:
         pass
     # Fall back to opening the containing directory.
     parent = str(path.parent)
-    for manager in ("thunar", "nemo", "nautilus", "dolphin", "pcmanfm", "caja", "xdg-open"):
+    for manager in ("pcmanfm-qt", "thunar", "nemo", "nautilus", "dolphin", "pcmanfm", "caja", "xdg-open"):
         if _which(manager):
             _spawn([manager, parent])
             return True
@@ -73,7 +77,7 @@ def reveal_file(path: Path) -> bool:
 
 
 def edit_file(path: Path) -> bool:
-    for editor in ("mousepad", "gedit", "kate", "xed", "xdg-open"):
+    for editor in ("featherpad", "mousepad", "gedit", "kate", "xed", "xdg-open"):
         if _which(editor):
             _spawn([editor, str(path)])
             return True
@@ -124,7 +128,7 @@ def _xfconf_set(args: list[str]) -> bool:
         return False
 
 
-def add_launcher_to_panel(desktop_file: Path, panel: int = 1) -> bool:
+def _add_launcher_to_xfce_panel(desktop_file: Path, panel: int = 1) -> bool:
     """Register a launcher item for ``desktop_file`` on an Xfce panel."""
     if not _which("xfconf-query"):
         return False
@@ -164,3 +168,110 @@ def add_launcher_to_panel(desktop_file: Path, panel: int = 1) -> bool:
 
     _spawn(["xfce4-panel", "--restart"])
     return True
+
+
+# --------------------------------------------------------------------------
+# LXQt panel integration
+#
+# The LXQt panel does not read xfconf; its configuration is a plain INI file
+# (``~/.config/lxqt/panel.conf``) that the running panel watches and reloads.
+# Panel buttons come from the "Custom Command" plugin, so adding an item means
+# appending a plugin section and listing its name under the panel's ``plugins``
+# key.
+# --------------------------------------------------------------------------
+def _lxqt_panel_conf() -> Path:
+    config_home = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return Path(config_home) / "lxqt" / "panel.conf"
+
+
+def _desktop_entry_value(desktop_file: Path, key: str) -> str:
+    try:
+        keyfile = GLib.KeyFile()
+        keyfile.load_from_file(str(desktop_file), GLib.KeyFileFlags.NONE)
+        return keyfile.get_string("Desktop Entry", key)
+    except GLib.Error:
+        return ""
+
+
+def _desktop_exec(desktop_file: Path) -> str:
+    """The launch command of a .desktop file with ``%`` field codes removed."""
+    exec_ = _desktop_entry_value(desktop_file, "Exec")
+    return " ".join(part for part in exec_.split() if not part.startswith("%"))
+
+
+def add_command_to_lxqt_panel(
+    command: str,
+    icon: str = "",
+    text: str = "",
+    name: str = "metromenu",
+    panel: int = 1,
+) -> bool:
+    """Add an LXQt panel "Custom Command" widget that runs ``command``.
+
+    ``name`` is the widget identifier inside ``panel.conf``; re-adding the same
+    command reuses the existing entry instead of stacking duplicates.
+    """
+    conf_path = _lxqt_panel_conf()
+    if not conf_path.exists():
+        return False
+
+    parser = configparser.RawConfigParser()
+    parser.optionxform = str  # keep key case (LXQt is case sensitive)
+    try:
+        with conf_path.open("r", encoding="utf-8") as handle:
+            parser.read_file(handle)
+    except (OSError, configparser.Error):
+        return False
+
+    panel_section = f"panel{panel}"
+    if not parser.has_section(panel_section):
+        return False
+
+    # Unique section name, reused when it already runs the same command.
+    plugin_name = name
+    suffix = 2
+    while parser.has_section(plugin_name) and parser.get(plugin_name, "command", fallback=None) != command:
+        plugin_name = f"{name}{suffix}"
+        suffix += 1
+
+    if not parser.has_section(plugin_name):
+        parser.add_section(plugin_name)
+    parser.set(plugin_name, "type", "customcommand")
+    parser.set(plugin_name, "alignment", "Left")
+    parser.set(plugin_name, "command", command)
+    if icon:
+        parser.set(plugin_name, "icon", icon)
+    if text:
+        parser.set(plugin_name, "text", text)
+
+    plugins = [p.strip() for p in parser.get(panel_section, "plugins", fallback="").split(",") if p.strip()]
+    if plugin_name not in plugins:
+        plugins.insert(0, plugin_name)  # place the button at the far left
+    parser.set(panel_section, "plugins", ", ".join(plugins))
+
+    try:
+        tmp = conf_path.with_suffix(".conf.tmp")
+        with tmp.open("w", encoding="utf-8") as handle:
+            parser.write(handle)
+            handle.write("\n")
+        tmp.replace(conf_path)
+    except OSError:
+        return False
+    return True
+
+
+def _add_desktop_launcher_to_lxqt_panel(desktop_file: Path, panel: int = 1) -> bool:
+    command = _desktop_exec(desktop_file)
+    if not command:
+        return False
+    icon = _desktop_entry_value(desktop_file, "Icon")
+    return add_command_to_lxqt_panel(
+        command, icon=icon, text="", name="metromenu-app", panel=panel
+    )
+
+
+def add_launcher_to_panel(desktop_file: Path, panel: int = 1) -> bool:
+    """Add a launcher for ``desktop_file`` to the running session's panel."""
+    if desktop.is_lxqt() or (_which("lxqt-panel") and not _which("xfce4-panel")):
+        return _add_desktop_launcher_to_lxqt_panel(desktop_file, panel)
+    return _add_launcher_to_xfce_panel(desktop_file, panel)

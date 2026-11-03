@@ -2,7 +2,7 @@
 # Install the Windows 10 style start menu into the user's home directory.
 #
 # Usage:  ./scripts/install.sh [--panel] [--hotkey] [--hotkey KEY]
-#   --panel        also add a launcher button to the Xfce panel
+#   --panel        also add a launcher button to the panel (Xfce or LXQt)
 #   --hotkey       bind a keyboard shortcut to toggle the menu
 #   --hotkey KEY   use KEY as the shortcut (default: <Super>)
 set -euo pipefail

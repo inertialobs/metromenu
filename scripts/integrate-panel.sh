@@ -1,22 +1,64 @@
 #!/usr/bin/env bash
-# Add a launcher button for the start menu to an Xfce panel.
+# Add a start-menu button to the session's panel (Xfce or LXQt).
 #
 # Usage:  ./scripts/integrate-panel.sh [PANEL_NUMBER]
 #
-# The script creates a new "launcher" panel plugin whose single item runs the
-# metromenu command, and inserts it as the first item of the panel so it
-# behaves like the Windows "Start" button.
+#   Xfce: creates a "launcher" panel plugin whose single item runs the
+#         metromenu command, inserted as the first panel item.
+#   LXQt: adds a "Custom Command" widget to ~/.config/lxqt/panel.conf (the
+#         running panel reloads on its own), placed at the far left.
 set -euo pipefail
 
 PANEL="${1:-1}"
 BIN="${HOME}/.local/bin/metromenu"
-PANEL_DIR="${HOME}/.config/xfce4/panel"
-CHANNEL="xfce4-panel"
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [[ ! -x "$BIN" ]]; then
     echo "error: $BIN not found - run scripts/install.sh first" >&2
     exit 1
 fi
+
+# The python package lives in the installed tree; fall back to the source tree.
+if [[ -d "${HOME}/.local/share/metromenu/metromenu" ]]; then
+    PYROOT="${HOME}/.local/share/metromenu"
+else
+    PYROOT="$SRC"
+fi
+
+detect_lxqt() {
+    local env="${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_DESKTOP:-}:${DESKTOP_SESSION:-}"
+    if [[ "$env" == *[Ll][Xx][Qq][Tt]* ]]; then
+        return 0
+    fi
+    if command -v lxqt-panel >/dev/null 2>&1 && ! command -v xfce4-panel >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+if detect_lxqt; then
+    PYTHONPATH="$PYROOT${PYTHONPATH:+:$PYTHONPATH}" python3 - "$PANEL" "$BIN" <<'PY'
+import sys
+
+from metromenu import actions
+
+panel = int(sys.argv[1])
+command = sys.argv[2]
+ok = actions.add_command_to_lxqt_panel(
+    command, icon="metromenu", text="", name="metromenu", panel=panel
+)
+sys.exit(0 if ok else 1)
+PY
+    echo "Added the start menu as an LXQt 'Custom Command' widget (panel $PANEL)."
+    echo "The panel reloads automatically; if the button does not appear, add it"
+    echo "manually via the panel's 'Add Widgets' dialog (Custom Command -> $BIN)."
+    echo "Remove it with: scripts/uninstall.sh --panel"
+    exit 0
+fi
+
+# --- Xfce -----------------------------------------------------------------
+PANEL_DIR="${HOME}/.config/xfce4/panel"
+CHANNEL="xfce4-panel"
 
 if ! command -v xfconf-query >/dev/null 2>&1; then
     echo "error: xfconf-query not found (is this an Xfce session?)" >&2

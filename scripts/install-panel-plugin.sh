@@ -12,6 +12,18 @@
 #   sudo apt install libgtk-3-dev libxfce4panel-2.0-dev
 set -euo pipefail
 
+# The native plugin is built against libxfce4panel and only loads in the Xfce
+# panel.  LXQt has a different plugin ABI (ILxQtPanelPlugin/Qt) and ships a
+# ready-made "Custom Command" widget, so point the user there instead.
+_lxqt_env="${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_DESKTOP:-}:${DESKTOP_SESSION:-}"
+if [[ "$_lxqt_env" == *[Ll][Xx][Qq][Tt]* ]] \
+    || { command -v lxqt-panel >/dev/null 2>&1 && ! command -v xfce4-panel >/dev/null 2>&1; }; then
+    echo "error: this plugin is Xfce only; it cannot be loaded by the LXQt panel." >&2
+    echo "On LXQt add the start menu as a 'Custom Command' panel widget instead:" >&2
+    echo "    scripts/integrate-panel.sh" >&2
+    exit 1
+fi
+
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGIN_SRC="$SRC/panel-plugin/metromenu-plugin.c"
 DESCRIPTOR="$SRC/panel-plugin/metromenu.desktop"

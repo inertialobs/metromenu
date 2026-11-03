@@ -9,5 +9,5 @@ Exec=@EXEC@
 Icon=metromenu
 Terminal=false
 StartupNotify=false
-Categories=Utility;X-XFCE;
+Categories=Utility;X-LXQt;X-XFCE;
 Keywords=start;menu;launcher;开始;菜单;

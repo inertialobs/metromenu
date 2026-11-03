@@ -2,7 +2,7 @@
 # Remove the start menu.
 #
 # Usage:  ./scripts/uninstall.sh [--panel] [--hotkey] [--purge]
-#   --panel    remove the panel launcher button (if present)
+#   --panel    remove the panel launcher/widget (Xfce or LXQt)
 #   --hotkey   remove keyboard shortcut(s) pointing at the menu
 #   --purge    also delete the saved layout (~/.config/metromenu)
 set -euo pipefail
@@ -85,8 +85,79 @@ remove_hotkeys() {
         | awk -v cmd="$BIN" '$NF == cmd { print $1 }')
 }
 
-[[ "$WANT_PANEL" == "1" ]] && remove_panel_button
-[[ "$WANT_HOTKEY" == "1" ]] && remove_hotkeys
+remove_lxqt_panel_button() {
+    local conf="${XDG_CONFIG_HOME:-$HOME/.config}/lxqt/panel.conf"
+    [[ -f "$conf" ]] || return 0
+    python3 - "$conf" <<'PY' || true
+import configparser
+import sys
+
+path = sys.argv[1]
+parser = configparser.RawConfigParser()
+parser.optionxform = str
+parser.read(path, encoding="utf-8")
+
+removed = []
+for section in list(parser.sections()):
+    if parser.get(section, "type", fallback="") != "customcommand":
+        continue
+    if "metromenu" in parser.get(section, "command", fallback=""):
+        parser.remove_section(section)
+        removed.append(section)
+
+for panel in [s for s in parser.sections() if s.startswith("panel")]:
+    if parser.has_option(panel, "plugins"):
+        names = [
+            p.strip()
+            for p in parser.get(panel, "plugins").split(",")
+            if p.strip() and p.strip() not in removed
+        ]
+        parser.set(panel, "plugins", ", ".join(names))
+
+if removed:
+    with open(path, "w", encoding="utf-8") as handle:
+        parser.write(handle)
+        handle.write("\n")
+    print("Removed LXQt panel widget(s): " + ", ".join(removed))
+PY
+}
+
+remove_lxqt_hotkeys() {
+    local conf="${XDG_CONFIG_HOME:-$HOME/.config}/lxqt/globalkeyshortcuts.conf"
+    [[ -f "$conf" ]] || return 0
+    python3 - "$conf" "$BIN" <<'PY' || true
+import configparser
+import sys
+
+path, command = sys.argv[1], sys.argv[2]
+parser = configparser.RawConfigParser()
+parser.optionxform = str
+parser.read(path, encoding="utf-8")
+
+removed = [
+    section
+    for section in list(parser.sections())
+    if parser.has_option(section, "command") and command in parser.get(section, "command")
+]
+for section in removed:
+    parser.remove_section(section)
+
+if removed:
+    with open(path, "w", encoding="utf-8") as handle:
+        parser.write(handle)
+        handle.write("\n")
+    print("Removed LXQt shortcut(s): " + ", ".join(removed))
+PY
+}
+
+if [[ "$WANT_PANEL" == "1" ]]; then
+    remove_panel_button
+    remove_lxqt_panel_button
+fi
+if [[ "$WANT_HOTKEY" == "1" ]]; then
+    remove_hotkeys
+    remove_lxqt_hotkeys
+fi
 
 rm -rf "$APP_DIR"
 rm -f "$BIN"

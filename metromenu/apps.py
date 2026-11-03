@@ -23,13 +23,15 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
+from . import desktop  # noqa: E402
+
 
 # Cache of the parsed application list, so a cold start does not have to read
 # and parse every .desktop file again.  The cache stores a fingerprint of the
 # .desktop files (path + mtime + size); whenever software is installed, removed
 # or updated the fingerprint changes and the list is scanned again.  A generous
 # TTL is only a safety net in case a filesystem does not report mtimes.
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 _CACHE_HOME = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
 CACHE_FILE = Path(_CACHE_HOME) / "metromenu" / "apps.json"
@@ -45,11 +47,13 @@ TERMINALS = [
     "tilix",
     "mate-terminal",
     "lxterminal",
+    "qterminal",
     "xterm",
 ]
 
 # Terminal specific flags used to run a command inside the emulator.
 TERMINAL_EXEC_FLAGS = {
+    "qterminal": ["-e"],
     "xfce4-terminal": ["-x"],
     "gnome-terminal": ["--"],
     "tilix": ["-e"],
@@ -61,6 +65,25 @@ TERMINAL_EXEC_FLAGS = {
     "x-terminal-emulator": ["-e"],
     "xterm": ["-e"],
 }
+
+# Per-desktop terminal preferences, tried before the generic list so that
+# installing another desktop's terminal does not change the default here.
+PREFERRED_TERMINALS = {
+    "XFCE": ["xfce4-terminal"],
+    "LXQT": ["qterminal", "lxterminal"],
+    "MATE": ["mate-terminal"],
+    "KDE": ["konsole"],
+    "GNOME": ["gnome-terminal"],
+}
+
+
+def _terminal_candidates() -> list[str]:
+    preferred: list[str] = []
+    for name in sorted(desktop.current_desktops()):
+        for candidate in PREFERRED_TERMINALS.get(name, []):
+            if candidate not in preferred:
+                preferred.append(candidate)
+    return [*preferred, *(candidate for candidate in TERMINALS if candidate not in preferred)]
 
 
 def _desktop_dirs() -> list[Path]:
@@ -98,7 +121,15 @@ def _cache_signature() -> dict:
                 continue
             digest.update(f"{path}\0{stat.st_mtime_ns}\0{stat.st_size}\n".encode("utf-8", "replace"))
     locale = os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or ""
-    return {"version": CACHE_VERSION, "locale": locale, "files": digest.hexdigest()}
+    # The desktop name is part of the signature: OnlyShowIn/NotShowIn filtering
+    # depends on it, so switching desktops (or changing XDG_CURRENT_DESKTOP)
+    # must invalidate the cache instead of serving a list built for another DE.
+    return {
+        "version": CACHE_VERSION,
+        "locale": locale,
+        "desktops": sorted(desktop.current_desktops()),
+        "files": digest.hexdigest(),
+    }
 
 
 def normalize(text: str) -> str:
@@ -261,6 +292,9 @@ class AppRegistry:
     def _scan(self) -> list[DesktopApp]:
         apps: list[DesktopApp] = []
         seen: set[str] = set()
+        # Inspect the environment once per scan instead of once per .desktop
+        # file (there are usually hundreds of them).
+        desktops = desktop.current_desktops()
         for directory in _desktop_dirs():
             if not directory.is_dir():
                 continue
@@ -268,7 +302,7 @@ class AppRegistry:
                 desktop_id = self._make_id(directory, path)
                 if desktop_id in seen:
                     continue
-                app = self._parse(desktop_id, path)
+                app = self._parse(desktop_id, path, desktops)
                 if app is not None:
                     seen.add(desktop_id)
                     apps.append(app)
@@ -325,7 +359,9 @@ class AppRegistry:
         # dashes instead of directory separators.
         return str(relative).replace(os.sep, "-")
 
-    def _parse(self, desktop_id: str, path: Path) -> DesktopApp | None:
+    def _parse(
+        self, desktop_id: str, path: Path, desktops: set[str] | None = None
+    ) -> DesktopApp | None:
         keyfile = GLib.KeyFile()
         try:
             keyfile.load_from_file(str(path), GLib.KeyFileFlags.NONE)
@@ -357,16 +393,22 @@ class AppRegistry:
         if get("NoDisplay").lower() == "true":
             return None
 
-        only_show = get("OnlyShowIn")
-        if only_show:
-            entries = [e.strip() for e in only_show.split(";") if e.strip()]
-            if entries and "XFCE" not in entries:
-                return None
-        not_show = get("NotShowIn")
-        if not_show:
-            entries = [e.strip() for e in not_show.split(";") if e.strip()]
-            if "XFCE" in entries:
-                return None
+        # Honour OnlyShowIn / NotShowIn against the *running* desktop instead
+        # of assuming Xfce, so the menu also works on LXQt and friends.  When
+        # the session does not advertise a desktop name we skip the filter
+        # rather than hiding everything.
+        desktops = desktops if desktops is not None else desktop.current_desktops()
+        if desktops:
+            only_show = get("OnlyShowIn")
+            if only_show:
+                entries = {e.strip().upper() for e in only_show.split(";") if e.strip()}
+                if entries and not (entries & desktops):
+                    return None
+            not_show = get("NotShowIn")
+            if not_show:
+                entries = {e.strip().upper() for e in not_show.split(";") if e.strip()}
+                if entries & desktops:
+                    return None
 
         exec_ = get("Exec")
         if not exec_:
@@ -468,7 +510,7 @@ def find_terminal() -> str | None:
     requested = os.environ.get("TERMINAL")
     if requested and shutil.which(requested):
         return requested
-    for candidate in TERMINALS:
+    for candidate in _terminal_candidates():
         if shutil.which(candidate):
             return candidate
     return None

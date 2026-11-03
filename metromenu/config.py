@@ -62,28 +62,43 @@ PALETTE = [
 ]
 
 # Applications that get promoted to the default set of pinned tiles, in order.
-# Only entries whose desktop file actually exists are used.
+# Only entries whose desktop file actually exists are used.  The list is
+# LXQt-first (metromenu's primary target) with the common cross-desktop apps
+# and the original Xfce candidates kept as a fallback.
 DEFAULT_TILE_CANDIDATES = [
     "firefox-esr.desktop",
+    "firefox.desktop",
     "chromium.desktop",
-    "thunar.desktop",
-    "xfce4-terminal.desktop",
-    "org.xfce.mousepad.desktop",
+    "google-chrome.desktop",
+    "org.gnome.Epiphany.desktop",
+    "pcmanfm-qt.desktop",
+    "qterminal.desktop",
+    "featherpad.desktop",
+    "lximage-qt.desktop",
+    "lxqt-archiver.desktop",
+    "qps.desktop",
+    "pavucontrol-qt.desktop",
+    "lxqt-config.desktop",
+    "obconf-qt.desktop",
     "code.desktop",
     "com.microsoft.VSCode.desktop",
     "libreoffice-writer.desktop",
     "libreoffice-calc.desktop",
     "libreoffice-impress.desktop",
     "vlc.desktop",
-    "org.xfce.Parole.desktop",
-    "org.xfce.ristretto.desktop",
     "org.kde.kolourpaint.desktop",
-    "org.gnome.SystemMonitor.desktop",
-    "xfce4-settings-manager.desktop",
     "org.kde.kcalc.desktop",
+    "org.gnome.SystemMonitor.desktop",
     "io.github.quodlibet.QuodLibet.desktop",
     "org.pulseaudio.pavucontrol.desktop",
+    # Xfce fallbacks, so an Xfce session keeps its previous defaults.
+    "thunar.desktop",
+    "xfce4-terminal.desktop",
+    "org.xfce.mousepad.desktop",
+    "xfce4-settings-manager.desktop",
     "xfce4-screenshooter.desktop",
+    "org.xfce.Parole.desktop",
+    "org.xfce.ristretto.desktop",
 ]
 
 DEFAULT_GROUPS = ["效率", "媒体与娱乐", "实用工具"]

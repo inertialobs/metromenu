@@ -1,6 +1,11 @@
 /*
  * Windows 10 style start menu - Xfce panel plugin.
  *
+ * Xfce only: this implements the libxfce4panel ABI (xfce_panel_module_construct)
+ * and cannot be loaded by the LXQt panel, which uses its own Qt plugin ABI
+ * (ILxQtPanelPlugin).  On LXQt add the start menu as a "Custom Command" widget
+ * instead - see scripts/integrate-panel.sh.
+ *
  * A thin panel button that toggles the metromenu application.  When an
  * instance is already running it is asked to toggle over D-Bus; otherwise the
  * program is spawned and anchored to this button so the popup appears right

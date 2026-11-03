@@ -1,4 +1,4 @@
-# Metro Menu for Xfce
+# Metro Menu —— Windows 10 风格开始菜单（Xfce / LXQt）
 
 一个在 Xfce 桌面上运行的、仿 Windows 10 的经典开始菜单：左侧应用列表，右侧
 Metro 磁贴，无边框窗口，支持搜索、磁贴缩放/换色/分组、实时磁贴和电源操作。
@@ -98,8 +98,8 @@ metromenu/
 ├── assets/                  # 图标（SVG + 多尺寸 PNG）
 ├── data/                    # .desktop 模板
 ├── bin/metromenu       # 源码树内可直接运行的启动器
-├── panel-plugin/            # 原生 Xfce 面板插件（C 源码 + 描述文件）
-├── scripts/                 # 安装 / 卸载 / 面板集成 / 快捷键
+├── panel-plugin/            # 原生 Xfce 面板插件（C 源码 + 描述文件；LXQt 用 Custom Command 代替）
+├── scripts/                 # 安装 / 卸载 / 面板集成 / 快捷键（自适应 Xfce 与 LXQt）
 └── reference/whiskermenu/   # 参考用的 whisker 源码（git clone）
 ```
 
@@ -107,7 +107,9 @@ metromenu/
 
 - Python 3 与 PyGObject（`python3-gi`）
 - GTK 3 运行时、`gir1.2-gtk-3.0`
-- 可选：`xfconf`、`xfce4-panel`（用于集成），`systemctl` / `loginctl`（电源操作）
+- 可选：Xfce 用 `xfconf`、`xfce4-panel`；LXQt 用 `lxqt-panel`、`lxqt-leave`、
+  `lxqt-config`、`lxqt-globalkeys`（用于集成与电源/设置操作）；
+  `systemctl` / `loginctl`（电源兜底）
 
 Debian/Ubuntu：
 
@@ -137,7 +139,52 @@ sudo apt install python3-gi gir1.2-gtk-3.0
 - `~/.local/share/applications/metromenu.desktop`
 - `~/.local/share/icons/hicolor/*/apps/metromenu.png|svg`
 
-## 面板集成原理
+## 在 LXQt 上使用
+
+代码本身是独立的 GTK3 应用，可直接在 LXQt（X11）下运行；仓库里与 Xfce 绑定的
+集成点已改为按运行时桌面自适应：
+
+| 位置 | 过去（写死 Xfce） | 现在 |
+| --- | --- | --- |
+| 电源/注销/设置 `window.py` | `xflock4` / `xfce4-session-logout` / `xfce4-settings-manager` | 优先 `lxqt-leave --lockscreen/--logout/--suspend/--reboot/--shutdown`、`lxqt-config`、`lxqt-admin-user`，再回退 Xfce |
+| 应用发现 `apps.py` | `OnlyShowIn`/`NotShowIn` 硬编码 `XFCE` | 按 `XDG_CURRENT_DESKTOP` 动态匹配（LXQt 下不再误隐藏 `OnlyShowIn=LXQt` 的应用） |
+| 默认磁贴 `config.py` | thunar / xfce4-terminal … | pcmanfm-qt / qterminal / featherpad / lximage-qt / lxqt-archiver / lxqt-config …（Xfce 项保留为兜底） |
+| 终端/文件管理器/编辑器 | 缺 qterminal / pcmanfm-qt / featherpad | 已加入 |
+| 添加到面板 `actions.py` | xfconf | LXQt 写 `~/.config/lxqt/panel.conf` 的 Custom Command 组件，Xfce 走原 xfconf 路径 |
+
+> 注意：LXQt 1.4 的 `lxqt-leave` 没有 `--switch-user`，菜单里的“切换用户”
+> 会尝试 `dm-tool`；若没有显示管理器该操作无效。
+
+安装与集成（脚本已按 LXQt 分支）：
+
+```bash
+./scripts/install.sh --panel          # 安装 + 在面板最左侧加“自定义命令”按钮
+./scripts/install.sh --hotkey         # 绑定 <Super>（写入 lxqt globalkeyshortcuts.conf）
+./scripts/uninstall.sh --panel --hotkey --purge
+```
+
+- 面板按钮：`integrate-panel.sh` 会在 `~/.config/lxqt/panel.conf` 里追加一个
+  `type=customcommand`、`command=metromenu` 的组件，并插到 `plugins=` 最前面；
+  LXQt 面板会监视该文件并自动重载。若未生效，可在面板“添加部件”里手动选
+  **Custom Command**，命令填 `metromenu`、图标选 `metromenu`。
+- 快捷键：`menu-hotkey.sh` 把 `<Super>` 等 GTK 写法转换成 LXQt 的 `Meta%2B…`
+  写入 `~/.config/lxqt/globalkeyshortcuts.conf`；若未立即生效，运行
+  `lxqt-config-globalkeyshortcuts` 或重新登录。
+- 合成器：LXQt + openbox 默认无合成器，窗口 `opacity` 与圆角不会混合，
+  会退化为不透明方角；需要毛玻璃效果时装 picom 即可。
+- **HiDPI / 缩放**：GTK 只会从 XSETTINGS 的 `Gdk/WindowScalingFactor` 自动取整数
+  缩放，而 LXQt 没有 XSETTINGS 守护进程，它改写的是 `Xft.dpi`（2x 桌面通常为 192）。
+  因此启动时若 `GDK_SCALE` 未设置，metromenu 会读取 `Xft.dpi` 并自动设置
+  `GDK_SCALE`（192 → 2x），让菜单与桌面其它程序一致；否则菜单会以 1x 渲染，在高分屏
+  上看起来只有一半大小。想手动指定可用环境变量 `METROMENU_SCALE=2`（或 `GDK_SCALE`），
+  `METROMENU_SCALE=1` 可强制回到 1x。窗口的 `width`/`height`/`left_width` 仍按逻辑像素
+  配置（`config.json`），实际设备像素 = 逻辑值 × 缩放。
+
+LXQt 面板**不能**加载 `panel-plugin/` 里的原生插件——那是 `libxfce4panel` 的
+ABI（`xfce_panel_module_construct`），与 LXQt 的 `ILxQtPanelPlugin`（Qt）不兼容。
+`install-panel-plugin.sh` 在 LXQt 下会直接提示改用上面的 Custom Command。
+
+## 面板集成原理（Xfce）
 
 Xfce 4.20 支持**用户级**面板插件：描述文件放在
 `~/.local/share/xfce4/panel/plugins/`，模块 `.so` 放在
@@ -192,6 +239,10 @@ Xfce 面板的 Launcher 插件把每个按钮存成
 
 若 `Super` 无响应，请在 *设置 → 键盘 → 应用程序快捷键* 中确认它没有被
 xfwm4 或 Whisker 菜单占用。
+
+在 LXQt 下脚本会改写入 `~/.config/lxqt/globalkeyshortcuts.conf`（把 `<Super>`
+翻译成 `Meta`）；若未立即生效，用 `lxqt-config-globalkeyshortcuts` 添加一条
+“命令”快捷键指向 `~/.local/bin/metromenu`，或重新登录。
 
 ## 配置示例
 

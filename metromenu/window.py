@@ -17,6 +17,7 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango  # noqa: E402
 from . import actions as actions_mod  # noqa: E402
 from . import apps as apps_mod  # noqa: E402
 from . import config as config_mod  # noqa: E402
+from . import desktop as desktop_mod  # noqa: E402
 from . import icons  # noqa: E402
 from . import timing  # noqa: E402
 from .tiles import TileWidget, build_group_grid  # noqa: E402
@@ -63,27 +64,40 @@ def _run(argv: list[str]) -> None:
 
 
 def _power_action(action: str) -> None:
+    candidates: list[list[str]] = []
     if action == "LOCK":
-        for cmd in (["xflock4"], ["loginctl", "lock-session"]):
-            if _which(cmd[0]):
-                _run(cmd)
-                return
+        candidates = [
+            ["lxqt-leave", "--lockscreen"],
+            ["xflock4"],
+            ["loginctl", "lock-session"],
+        ]
     elif action == "LOGOUT":
-        if _which("xfce4-session-logout"):
-            _run(["xfce4-session-logout", "--logout"])
-        else:
-            _run(["loginctl", "terminate-session", os.environ.get("XDG_SESSION_ID", "")])
+        candidates = [
+            ["lxqt-leave", "--logout"],
+            ["xfce4-session-logout", "--logout"],
+        ]
+        session_id = os.environ.get("XDG_SESSION_ID")
+        if session_id:
+            candidates.append(["loginctl", "terminate-session", session_id])
     elif action == "SWITCH_USER":
-        if _which("dm-tool"):
-            _run(["dm-tool", "switch-to-greeter"])
-        elif _which("xfce4-session-logout"):
-            _run(["xfce4-session-logout", "--switch-user"])
+        # lxqt-leave 1.4 has no switch-user flag; a display-manager helper or
+        # the Xfce logout dialog are the alternatives.
+        candidates = [
+            ["dm-tool", "switch-to-greeter"],
+            ["xfce4-session-logout", "--switch-user"],
+        ]
     elif action == "SUSPEND":
-        _run(["systemctl", "suspend"])
+        candidates = [["lxqt-leave", "--suspend"], ["systemctl", "suspend"]]
+    elif action == "HIBERNATE":
+        candidates = [["lxqt-leave", "--hibernate"], ["systemctl", "hibernate"]]
     elif action == "RESTART":
-        _run(["systemctl", "reboot"])
+        candidates = [["lxqt-leave", "--reboot"], ["systemctl", "reboot"]]
     elif action == "SHUTDOWN":
-        _run(["systemctl", "poweroff"])
+        candidates = [["lxqt-leave", "--shutdown"], ["systemctl", "poweroff"]]
+
+    command = desktop_mod.first_available(candidates)
+    if command is not None:
+        _run(command)
 
 
 def _which(program: str) -> bool:
@@ -875,13 +889,18 @@ class StartMenuWindow(Gtk.Window):
         menu.popup_at_widget(button, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST, None)
 
     def _open_account_settings(self) -> None:
-        for candidate in ("mugshot", "xfce4-settings-manager"):
+        for candidate in ("lxqt-admin-user", "mugshot", "xfce4-settings-manager"):
             if _which(candidate):
                 _run([candidate])
                 return
 
     def _open_system_settings(self) -> None:
-        for candidate in ("xfce4-settings-manager", "systemsettings", "gnome-control-center"):
+        for candidate in (
+            "lxqt-config",
+            "xfce4-settings-manager",
+            "systemsettings",
+            "gnome-control-center",
+        ):
             if _which(candidate):
                 _run([candidate])
                 self.request_hide()
