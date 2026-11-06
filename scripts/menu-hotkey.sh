@@ -116,13 +116,38 @@ fi
 
 # --- Xfce -----------------------------------------------------------------
 CHANNEL="xfce4-keyboard-shortcuts"
-PROP="/commands/custom/$KEY"
 
-if xfconf-query -c "$CHANNEL" -p "$PROP" -n -t string -s "$CMD" 2>/dev/null; then
-    :
-else
-    xfconf-query -c "$CHANNEL" -p "$PROP" -t string -s "$CMD"
+# Xfce stores a *lone* modifier shortcut under its keysym name (e.g. Super_L),
+# not the GTK-style "<Super>" notation used for key combinations.  Writing
+# "<Super>" silently does nothing when Super is pressed on its own.
+case "$KEY" in
+    '<Super>'|'<Meta>'|'<Mod4>')
+        props=(Super_L Super_R); legacy=('<Super>' '<Meta>') ;;
+    '<Control>'|'<Primary>'|'<Ctrl>')
+        props=(Control_L Control_R); legacy=('<Control>' '<Primary>') ;;
+    '<Alt>'|'<Mod1>')
+        props=(Alt_L Alt_R); legacy=('<Alt>' '<Mod1>') ;;
+    '<Shift>')
+        props=(Shift_L Shift_R); legacy=('<Shift>') ;;
+    *)
+        props=("$KEY"); legacy=() ;;
+esac
+
+# Remove a stale literal "<Super>" style binding from older versions.
+if [[ ${#legacy[@]} -gt 0 ]]; then
+    for old in "${legacy[@]}"; do
+        xfconf-query -c "$CHANNEL" -p "/commands/custom/$old" -r 2>/dev/null || true
+    done
 fi
+
+for prop in "${props[@]}"; do
+    path="/commands/custom/$prop"
+    if xfconf-query -c "$CHANNEL" -p "$path" -n -t string -s "$CMD" 2>/dev/null; then
+        :
+    else
+        xfconf-query -c "$CHANNEL" -p "$path" -t string -s "$CMD"
+    fi
+done
 
 echo "Bound '$KEY' to the start menu."
 echo "If '$KEY' does not respond, make sure it is not already used by"

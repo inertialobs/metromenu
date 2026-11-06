@@ -70,7 +70,8 @@ sudo apt install python3-gi gir1.2-gtk-3.0
 
 - 左栏“常用 / 所有应用”，顶部搜索框同时过滤列表与磁贴。
 - 方向键选择、回车启动；`Esc` 或点击外部关闭。
-- 左下角：系统设置、用户菜单（锁定/注销/关机、恢复隐藏的应用）、电源。
+- 左下角：系统设置、用户菜单（锁定/注销/关机、恢复隐藏的应用）、电源
+  （锁定/注销/切换用户/挂起/休眠/重启/关机）。
 
 ### 右键菜单
 
@@ -99,9 +100,10 @@ sudo apt install python3-gi gir1.2-gtk-3.0
 ./scripts/menu-hotkey.sh '<Super>s'
 ```
 
-- Xfce：写入 xfconf（`xfce4-keyboard-shortcuts`）。
+- Xfce：写入 xfconf（`xfce4-keyboard-shortcuts`）。单独的 `<Super>` 会以`Super_L` / `Super_R`（keysym）写入。
 - LXQt：写入 `~/.config/lxqt/globalkeyshortcuts.conf`（`<Super>` → `Meta`）。
-- 若 `Super` 无响应，检查是否被窗口管理器或其他菜单占用。
+- 若 `Super` 无响应，检查是否被窗口管理器或其他菜单占用；Xfce 下可重新运行
+  `./scripts/menu-hotkey.sh '<Super>'`
 
 ### 配置
 
@@ -167,7 +169,7 @@ sudo apt install python3-gi gir1.2-gtk-3.0
 | 操作 | 解析顺序 |
 | --- | --- |
 | 锁定 | `lxqt-leave` → `xflock4` → `loginctl` |
-| 注销 / 挂起 / 重启 / 关机 | `lxqt-leave` → Xfce 注销对话框或 `systemctl` |
+| 注销 / 挂起 / 休眠 / 重启 / 关机 | `lxqt-leave` → Xfce 注销对话框或 `systemctl` |
 | 系统设置 | `lxqt-config` → `xfce4-settings-manager` → `systemsettings` → `gnome-control-center` |
 | 终端 | `$TERMINAL` → 当前桌面的终端 → 常见终端列表 |
 | 文件管理器 | `FileManager1` → 当前桌面的文件管理器 → 其他常见文件管理器 |
@@ -239,4 +241,4 @@ metromenu/
 
 ## 许可证
 
-[GPL-3.0-or-later](LICENSE): 
+[GPL-3.0-or-later](LICENSE)
