@@ -27,9 +27,19 @@ POWER_ACTIONS = [
     ("注销", "LOGOUT"),
     ("切换用户", "SWITCH_USER"),
     ("挂起", "SUSPEND"),
+    ("休眠", "HIBERNATE"),
     ("重启", "RESTART"),
     ("关机", "SHUTDOWN"),
 ]
+
+
+def _hibernate_supported() -> bool:
+    """Whether the kernel offers hibernation (``disk`` in /sys/power/state)."""
+    try:
+        with open("/sys/power/state", "r", encoding="ascii", errors="ignore") as handle:
+            return "disk" in handle.read().split()
+    except OSError:
+        return False
 
 # Human readable names for the Metro palette (used by the tile colour menu).
 COLOR_NAMES = {
@@ -860,7 +870,10 @@ class StartMenuWindow(Gtk.Window):
     # -- power / user menus ---------------------------------------------
     def _show_power_menu(self, button: Gtk.Button) -> None:
         menu = Gtk.Menu()
+        hibernate_ok = _hibernate_supported()
         for label, action in POWER_ACTIONS:
+            if action == "HIBERNATE" and not hibernate_ok:
+                continue
             item = Gtk.MenuItem(label=label)
             item.connect("activate", lambda _i, a=action: _power_action(a))
             menu.append(item)
